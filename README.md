@@ -7,3 +7,6 @@ Pin assignments are in pindefs_Pico02 for DaveH Pico breakout board
 Designed for 4x Express Models LED light posts and 4x servos for barriers
 
 Code not yet tested nor fully functional
+
+This code is licensed under the terms of the following CreativeCommons License
+https://creativecommons.org/licenses/by/4.0/legalcode.en
