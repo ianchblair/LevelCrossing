@@ -14,10 +14,8 @@ import cbusdefs
 import cbusmodule
 import logger
 import mcp2515
-
 import crossing_barriers
 import crossing_lights
-
 
 class mymodule(cbusmodule.cbusmodule):
     def __init__(self):
@@ -76,11 +74,11 @@ class mymodule(cbusmodule.cbusmodule):
         self.cbus.begin()
 
         # ***
-        # *** end of bare minimum init
-
-        # ***
+        # *** Instantiate barrier and light clusses
+        crossing_lights.crossing_lights()
+        crossing_barriers.crossing_barriers()
+    
         # *** module initialisation complete
-
         self.logger.log(f'module: name = <{self.cbus.name.decode()}>, mode = {self.cbus.config.mode}, can id = {self.cbus.config.canid}, node number = {self.cbus.config.node_number}')
         self.logger.log(f'free memory = {self.cbus.config.free_memory()} bytes')
 
@@ -99,19 +97,17 @@ class mymodule(cbusmodule.cbusmodule):
         ev1 = self.cbus.config.read_event_ev(idx, 1)
         self.logger.log(f'** idx = {idx}, opcode = {msg.data[0]}, polarity = {"OFF" if msg.data[0] & 1 else "ON"}, ev1 = {ev1}')
 
-        # switch the LED on or off according to the event opcode
+        # switch the crossing on or off according to the event opcode
+        # On in this context means gates down and lights on
         if ev1 < 8:
             if msg.data[0] & 1:        # off events are odd numbers
                 self.logger.log(f'** Crossing {ev1} off')
-                #self.pins[ev1].off()
-                self.tg.crossing_gates(up)
-                self.tl.crossing_lights(off)
+                self.crossing_barriers.start_crossing_barriers()
+                self.crossing_lights.start_crossing_lights()
             else:                      # on events are even numbers
-                self.logger.log(f'** Crossing {ev1} on')
-                self.pins[ev1].on()
-                self.tg.crossing_gates(down)
-                self.tl.crossing_lights(on)  
-
+                self.logger.log(f'** Crossing {ev1} on') 
+                self.crossing_barriers.stop_crossing_barriers()
+                self.crossing_lights.stop_crossing_lights()
     # ***
     # *** coroutines that run in parallel
     # ***
@@ -129,8 +125,17 @@ class mymodule(cbusmodule.cbusmodule):
             await asyncio.sleep_ms(20)
             led.value(0)
             await asyncio.sleep_ms(980)
-
-    # *** user module application task - like Arduino loop()
+        
+    async def crossing_lights_coro(self) -> None:
+        self.logger.log('crossing_lights_coro start')
+        while True:
+            self.lights_start.wait()
+            self.yellow_lights()
+            self.red_lights()
+            self.lights_stop.wait()
+            self.stop_red_lights()
+        
+# *** user module application task - like Arduino loop()
     async def module_main_loop_coro(self) -> None:
         self.logger.log('main loop coroutine start')
         while True:
@@ -145,7 +150,7 @@ class mymodule(cbusmodule.cbusmodule):
 
         # start coroutines
         self.tb = asyncio.create_task(self.blink_led_coro())
-        self.tg = asyncio.create_task(self.crossing_gates_coro())
+#        self.tg = asyncio.create_task(barriers.crossing_barriers_coro(())
         self.tl = asyncio.create_task(self.crossing_lights_coro())
         self.tm = asyncio.create_task(self.module_main_loop_coro())
 
