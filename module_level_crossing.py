@@ -21,12 +21,38 @@ import crossing_lights
 _YELLOW_ON_TIME = const(4000)
 _RED_ON_TIME = const(500)
 
+# Barrier PWM timings in us
+# PWM duration is 1.5ms. +/- 0.5ms for +90 to -90 degrees
+# zero degrees
+SERVO_NEUTRAL = const(1500)
+# =45 degrees (i.e. down)
+BARRIER_DOWN = const(1250)
+# +45 degrees (i.e. up)
+BARRIER_UP = const(1750)
+# These transition durations in ms ...
+TRANSITION_DOWN = const(2000)
+TRANSITION_UP = const(1000)
+BARRIER_DELAY = const(4000)
+INTER_BARRIER_PAUSE = const(500)
+# PWM frequency is in Hz
+SERVO_FRAME_RATE = const(50)
+#Update period in ms
+UPDATE_PERIOD = const(20)
+PULSE_MIN = 1000000*BARRIER_DOWN
+PULSE_INIT = 1000000*BARRIER_UP
+NUM_DOWN_STEPS = TRANSITION_DOWN/UPDATE_PERIOD
+NUM_UP_STEPS = TRANSITION_UP/UPDATE_PERIOD
+PULSE_DOWN_STEP = int(1000000*(BARRIER_UP-BARRIER_DOWN)/NUM_DOWN_STEPS)
+PULSE_UP_STEP = int(1000000*(BARRIER_UP-BARRIER_DOWN)/NUM_UP_STEPS)
+
+
 class mymodule(cbusmodule.cbusmodule):
     def __init__(self):
         super().__init__()
         self.logger = logger.logger()
         self._lights_start = asyncio.ThreadSafeFlag()
         self._lights_stop = asyncio.ThreadSafeFlag()
+        self._lights_stop_event = asyncio.Event()
         self._barriers_start = asyncio.ThreadSafeFlag()
         self._barriers_stop = asyncio.ThreadSafeFlag()
 
@@ -85,7 +111,9 @@ class mymodule(cbusmodule.cbusmodule):
         # *** Instantiate barrier and light clusses
         self.cl = crossing_lights.crossing_lights()
         self.cb = crossing_barriers.crossing_barriers()
-    
+
+        self.cb.initialise_barriers(PULSE_INIT)
+        
         # *** module initialisation complete
         self.logger.log(f'module: name = <{self.cbus.name.decode()}>, mode = {self.cbus.config.mode}, can id = {self.cbus.config.canid}, node number = {self.cbus.config.node_number}')
         self.logger.log(f'free memory = {self.cbus.config.free_memory()} bytes')
@@ -115,7 +143,11 @@ class mymodule(cbusmodule.cbusmodule):
             else:                      # on events are even numbers
                 self.logger.log(f'** Crossing {ev1} on') 
                 self._barrierss_stop.set()
-                self._lights_stop.set()
+                # An event is used here because the flag needs to be polled
+                # If this doesn't work from a task is needed to convert
+                # the ThreadSafeFlag to an asyncio Event
+                #self._lights_stop.set()
+                self._lights_stop_event.set() 
     # ***
     # *** coroutines that run in parallel
     # ***
@@ -132,26 +164,28 @@ class mymodule(cbusmodule.cbusmodule):
             led.value(1)
             await asyncio.sleep_ms(20)
             led.value(0)
-            await asyncio.sleep_ms(980)
+            await asyncio.sleep_ms(9800)
+            self._lights_stop_event.set() 
 
 # This asynchronous task for lights
     async def crossing_lights_coro(self) -> None:
         self.logger.log('crossing_lights_coro start')
         while True:
-            #await self._lights_start.wait()
+            await self._lights_start.wait()
             self.logger.log('yellow on')
             self.cl.yellow_lights()
-            #myled = Pin(3, Pin.OUT)
-            #myled.value(1)
             await asyncio.sleep_ms(_YELLOW_ON_TIME)
             self.logger.log('yellow done')
             self.cl.red_lights()
             self.logger.log('red done')
             await asyncio.sleep_ms(_RED_ON_TIME)
-            self.cl.flashing_red_lights()
+            while (self._lights_stop_event.is_set() == False):
+                self.cl.swap_red_lights()
+                self.logger.log('flashing red swap')
+                await asyncio.sleep_ms(_RED_ON_TIME)
+            self._lights_stop_event.clear()
             self.logger.log('flashing red done')
-            await asyncio.sleep_ms(5000)
-            #await self._lights_stop.wait()
+            self._lights_stop.wait()
             self.cl.stop_red_lights()
             self.logger.log('crossing_lights_coro end of loop')
                    
@@ -160,13 +194,25 @@ class mymodule(cbusmodule.cbusmodule):
     async def module_main_loop_coro(self) -> None:
         self.logger.log('main loop coroutine start')
         while True:
-            await asyncio.sleep_ms(25)
-            #await self._barriers_start.wait()
-            await asyncio.sleep_ms(5000)
-            self.cb.barriers_down()
-            await asyncio.sleep_ms(5000)
-            #await self._barriers_stop.wait()
-            self.cb.barriers_up()
+            await self._barriers_start.wait()
+            
+            await asyncio.sleep_ms(BARRIER_DELAY)
+            for i in range(0,NUM_DOWN_STEPS+1):
+                pulse_width = int(PULSE_MIN + (NUM_DOWN_STEPS-i)*PULSE_DOWN_STEP)
+                self.cb.nearside_barriers(pulse_width)
+                await asyncio.sleep_ms(UPDATE_PERIOD)
+            await asyncio.sleep_ms(INTER_BARRIER_PAUSE)
+            for i in range(0,NUM_DOWN_STEPS+1):
+                pulse_width = int(PULSE_MIN + (NUM_DOWN_STEPS-i)*PULSE_DOWN_STEP)
+                self.cb.offside_barriers(pulse_width)
+                await asyncio.sleep_ms(UPDATE_PERIOD)
+                
+            await self._barriers_stop.wait()
+            
+            for i in range(0,NUM_UP_STEPS+1):
+                pulse_width = int(PULSE_MIN + i*PULSE_UP_STEP)
+                self.cb.bothside_barriers(pulse_width)
+                await asyncio.sleep_ms(UPDATE_PERIOD)                
             self.logger.log('barrier loop end')
     # ***
     # *** module main entry point - like Arduino setup()

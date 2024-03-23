@@ -32,7 +32,7 @@ class crossing_lights():
         self._flasher = Timer()
         self._now_left = False
         
-    # def initialise(self):
+#    def initialise(self):
         # self._lights_off()
         # ***
         # ***
@@ -100,6 +100,6 @@ class crossing_lights():
 
     def stop_red_lights(self):
             self._lights_off()
-            self._flasher.deinit()
+
                             
 print('*** End of crossing lights file ***')
