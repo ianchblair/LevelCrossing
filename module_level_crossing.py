@@ -19,7 +19,7 @@ import crossing_barriers
 import crossing_lights
 
 _YELLOW_ON_TIME = const(4000)
-_RED_ON_TIME = const(500)
+_RED_ON_TIME = const(333)
 
 # Barrier PWM timings in us
 # PWM duration is 1.5ms. +/- 0.5ms for +90 to -90 degrees
