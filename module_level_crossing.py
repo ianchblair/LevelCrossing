@@ -3,6 +3,8 @@
 #
 # simplest example CBUS module main class using asyncio library
 #
+# (c) Ian Blair 3rd. April 2024
+#
 
 import uasyncio as asyncio
 from machine import Pin
@@ -69,7 +71,7 @@ class mymodule(cbusmodule.cbusmodule):
 
         # ** change the module name and ID if desired
 
-        self.module_id = 103
+        self.module_id = 107
         self.module_name = bytes('LEVCR  ', 'ascii')
         self.module_params = [
             20,
@@ -80,7 +82,7 @@ class mymodule(cbusmodule.cbusmodule):
             self.cbus.config.num_evs,
             self.cbus.config.num_nvs,
             1,
-            7,
+            6,
             0,
             cbusdefs.PB_CAN,
             0,
@@ -97,7 +99,7 @@ class mymodule(cbusmodule.cbusmodule):
 
         # change the CBUS switch and LED pin numbers if desired
 
-        self.cbus.set_leds(pindefs.PIN_LED_GRN,pindefs.PIN_LED_RED)
+        self.cbus.set_leds(pindefs.PIN_LED_GRN,pindefs.PIN_LED_YEL)
         self.cbus.set_switch(pindefs.PIN_SW1)
         self.cbus.set_name(self.module_name)
         self.cbus.set_params(self.module_params)
@@ -136,13 +138,13 @@ class mymodule(cbusmodule.cbusmodule):
         # switch the crossing on or off according to the event opcode
         # On in this context means gates down and lights on
         if ev1 < 8:
-            if msg.data[0] & 1:        # off events are odd numbers
-                self.logger.log(f'** Crossing {ev1} off')
-                self._barrierss_start.set()
+            if not (msg.data[0] & 1):        # on events are even numbers
+                self.logger.log(f'** Crossing {ev1} on')
+                self._barriers_start.set()
                 self._lights_start.set()
-            else:                      # on events are even numbers
-                self.logger.log(f'** Crossing {ev1} on') 
-                self._barrierss_stop.set()
+            else:                      # off events are pdd numbers
+                self.logger.log(f'** Crossing {ev1} off') 
+                self._barriers_stop.set()
                 # An event is used here because the flag needs to be polled
                 # If this doesn't work from a task is needed to convert
                 # the ThreadSafeFlag to an asyncio Event
@@ -164,9 +166,8 @@ class mymodule(cbusmodule.cbusmodule):
             led.value(1)
             await asyncio.sleep_ms(20)
             led.value(0)
-            await asyncio.sleep_ms(9800)
-            self._lights_stop_event.set() 
-
+            await asyncio.sleep_ms(980)
+            
 # This asynchronous task for lights
     async def crossing_lights_coro(self) -> None:
         self.logger.log('crossing_lights_coro start')
