@@ -7,7 +7,7 @@
 #
 
 import uasyncio as asyncio
-from machine import Pin
+from machine import Pin,SPI
 import pindefs_Pico02 as pindefs
 
 import aiorepl
@@ -33,9 +33,9 @@ BARRIER_DOWN = const(1250)
 BARRIER_UP = const(1750)
 # These transition durations in ms ...
 TRANSITION_DOWN = const(2000)
-TRANSITION_UP = const(1000)
-BARRIER_DELAY = const(4000)
-INTER_BARRIER_PAUSE = const(500)
+TRANSITION_UP = const(1500)
+BARRIER_DELAY = const(6000)
+INTER_BARRIER_PAUSE = const(1500)
 # PWM frequency is in Hz
 SERVO_FRAME_RATE = const(50)
 #Update period in ms
@@ -57,15 +57,26 @@ class mymodule(cbusmodule.cbusmodule):
         self._lights_stop_event = asyncio.Event()
         self._barriers_start = asyncio.ThreadSafeFlag()
         self._barriers_stop = asyncio.ThreadSafeFlag()
+        self._event_led = Pin(pindefs.PIN_LED_RED, Pin.OUT)
 
     def initialise(self):
 
         # ***
-        # *** bare minimum module init
+        # *** Module init
         # ***
-
+        # SPI pin configuration from pindefs
+        bus = SPI(
+            1,
+            baudrate=10_000_000,
+            polarity=0,
+            phase=0,
+            bits=8,
+            firstbit=SPI.MSB,
+            sck=Pin(pindefs.PIN_CAN_CLK),
+            mosi=Pin(pindefs.PIN_CAN_MOSI),
+            miso=Pin(pindefs.PIN_CAN_MISO),)
         self.cbus = cbus.cbus(
-            mcp2515.mcp2515(),
+            mcp2515.mcp2515(osc=16_000_000, cs_pin=pindefs.PIN_CAN_CS0, interrupt_pin=pindefs.PIN_CAN_INT1, bus=bus),
             cbusconfig.cbusconfig(storage_type=cbusconfig.CONFIG_TYPE_FILES),
         )
 
@@ -82,6 +93,8 @@ class mymodule(cbusmodule.cbusmodule):
             self.cbus.config.num_evs,
             self.cbus.config.num_nvs,
             1,
+            # Parameter below sets PF flags. 6 sets Consumer and Producer node, 
+            # but only Consumer node functionality is implemented so far.
             6,
             0,
             cbusdefs.PB_CAN,
@@ -116,6 +129,9 @@ class mymodule(cbusmodule.cbusmodule):
 
         self.cb.initialise_barriers(PULSE_INIT)
         
+
+        self._event_led.value(0) 
+        
         # *** module initialisation complete
         self.logger.log(f'module: name = <{self.cbus.name.decode()}>, mode = {self.cbus.config.mode}, can id = {self.cbus.config.canid}, node number = {self.cbus.config.node_number}')
         self.logger.log(f'free memory = {self.cbus.config.free_memory()} bytes')
@@ -142,6 +158,7 @@ class mymodule(cbusmodule.cbusmodule):
                 self.logger.log(f'** Crossing {ev1} on')
                 self._barriers_start.set()
                 self._lights_start.set()
+                self._event_led.value(1) 
             else:                      # off events are pdd numbers
                 self.logger.log(f'** Crossing {ev1} off') 
                 self._barriers_stop.set()
@@ -149,7 +166,8 @@ class mymodule(cbusmodule.cbusmodule):
                 # If this doesn't work from a task is needed to convert
                 # the ThreadSafeFlag to an asyncio Event
                 #self._lights_stop.set()
-                self._lights_stop_event.set() 
+                self._lights_stop_event.set()
+                self._event_led.value(0) 
     # ***
     # *** coroutines that run in parallel
     # ***
