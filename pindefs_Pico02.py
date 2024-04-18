@@ -29,3 +29,8 @@ PIN_BAR_NRS1 =  const(5)
 PIN_BAR_OFS0 =  const(6)
 PIN_BAR_OFS1 =  const(7)
 
+# For sound player
+PIN_SND_TXD = const(16)
+PIN_SND_RXD = const(17)
+PIN_SND_BSY = const(18)
+
